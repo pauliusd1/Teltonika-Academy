@@ -1,0 +1,258 @@
+
+#Vienas iš keturių būdų trinti perteklinius duomenis iš MYSQL duomenų bazės
+#Buvo tikrinama greiciausiai, kuris budas efektyviausias laiko atzvilgiu
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <my_global.h>
+#include <mysql.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <time.h>
+
+const char CONFIG_FILE[] = "/home/studentas2/NetBeansProjects/DB/monitoringdb.conf";
+FILE * failas;
+
+struct parameters {
+    int limit, reserve, rec_day, res_day;
+    char table[32];
+
+};
+//--Atminties skyrimo funkcijos
+
+char *cmem(int cc) { //isskiria atminti char
+    char *z;
+    z = (char *) malloc(cc * sizeof (char));
+    if (!z) {
+        printf("Crash!!!");
+        exit;
+    }
+    return z;
+}
+
+//--SQL funkcijos---------------------------------------------------------------
+
+void finish_with_error(MYSQL *con) {
+    fprintf(stderr, "%s\n", mysql_error(con));
+    mysql_close(con);
+    exit(1);
+}
+
+MYSQL * contosql() {
+    MYSQL *con = mysql_init(NULL);
+    if (con == NULL) {
+        fprintf(stderr, "mysql_init() failed\n");
+        exit(1);
+    }
+    if (mysql_real_connect(con, "localhost", "root", "kaunassql",
+            "monitoring_rut9", 0, NULL, 0) == NULL) {
+        finish_with_error(con);
+    }
+    return con;
+}
+
+void query(char *st, MYSQL *connect) {
+
+    if (mysql_query(connect, st)) {
+        finish_with_error(connect);
+    }
+}
+
+
+
+
+//--Parametru funkcijos---------------------------------------------------------
+
+void checkconf() {
+    failas = fopen(CONFIG_FILE, "r");
+    if (!failas) {
+        printf("nera failo");
+        exit(0);
+    }
+}
+
+void reservday(struct tm tm, char *reservation, struct parameters par) {
+    tm.tm_mday = tm.tm_mday - par.res_day;
+    mktime(&tm);
+    sprintf(reservation, "%d-%02d-%02d", tm.tm_year + 1900 - 1, tm.tm_mon + 1 + 5, tm.tm_mday + 20);
+    printf("Reservation loc %s\n", reservation);
+}
+
+void read_param(struct parameters *par) {
+    //int *lim, int *res, int *r_d, int *res_d){
+    char eilute[50];
+    char zero[1];
+    char eilute1[50], eilute2[50], eilute3[50], eilute4[50], eilute5[50],
+            zodis[50], zodis2[50], zodis3[50], zodis4[50], zodis5[50];
+    int bo = 0;
+    char s[2] = "=\n";
+
+    while (fgets(eilute, sizeof (eilute), failas)) {
+        if (bo == 1) {
+            strncpy(eilute1, eilute, 50);
+            bo = 0;
+        }
+        if (bo == 2) {
+            strncpy(eilute2, eilute, 50);
+            bo = 0;
+        }
+        if (bo == 3) {
+            strncpy(eilute3, eilute, 50);
+            bo = 0;
+        }
+        if (bo == 4) {
+            strncpy(eilute4, eilute, 50);
+            bo = 0;
+        }
+        if (bo == 5) {
+            strncpy(eilute5, eilute, 50);
+            bo = 0;
+        }
+
+        if (strcmp(eilute, "###Limits of records in table\n") == 0) bo = 1;
+        if (strcmp(eilute, "###Delete over limit\n") == 0) bo = 2;
+        if (strcmp(eilute, "###Records of day left\n") == 0) bo = 3;
+        if (strcmp(eilute, "###Reservation days\n") == 0) bo = 4;
+        if (strcmp(eilute, "###Table\n") == 0) bo = 5;
+    }
+
+    strncpy(zodis, strtok(eilute1, s), 50); //nuskaitom pirmaji tokena is eilutes su simboliu s
+    strncpy(zodis, strtok(NULL, s), 50);
+    strncpy(zodis2, strtok(eilute2, s), 50); //nuskaitom pirmaji tokena is eilutes su simboliu s
+    strncpy(zodis2, strtok(NULL, s), 50);
+    strncpy(zodis3, strtok(eilute3, s), 50); //nuskaitom pirmaji tokena is eilutes su simboliu s
+    strncpy(zodis3, strtok(NULL, s), 50);
+    strncpy(zodis4, strtok(eilute4, s), 50); //nuskaitom pirmaji tokena is eilutes su simboliu s
+    strncpy(zodis4, strtok(NULL, s), 50);
+    strncpy(zodis5, strtok(eilute5, s), 50); //nuskaitom pirmaji tokena is eilutes su simboliu s
+    //strncpy(zodis5, strtok(NULL, s), 50);
+    par->limit = atoi(zodis);
+    par->reserve = atoi(zodis2);
+    par->rec_day = atoi(zodis3);
+    par->res_day = atoi(zodis4);
+    strcpy(par->table, zodis5);
+    printf("LIMITSUPER %i\n", par->limit);
+    printf("RESERVE %i\n", par->reserve);
+    printf("REC_DAY %i\n", par->rec_day);
+    printf("RES_DAYS %i\n", par->res_day);
+    printf("TABLE %s\n", par->table);
+}
+
+
+
+//--Programos funkcijos---------------------------------------------------------
+
+
+
+//------------------------------------------------------------------------------
+//MAINMAINMAINMAINMAINMAINMAINMAINMAINMAINMAINMAINMAINMAINMAINMAINMAINMAINMAINMA
+//------------------------------------------------------------------------------
+
+int main() {
+
+    int i = 0, j = 0;
+    MYSQL *con; //--sql kintamieji------------------------
+    MYSQL_RES *result = NULL;
+    MYSQL_RES *result2 = NULL;
+    MYSQL_ROW r;
+    char now_time[100];
+    time_t now;
+    struct parameters p;
+    char quer0[150];
+    char quer1[150];
+    char lentele[150];
+    int num_rows,nr, nr2;
+    int curr, count = 0, glob_count;
+    char *duomenys;
+    char *duomenys2;
+
+
+
+    checkconf();
+    read_param(&p);
+    strcpy(lentele, "acls");
+    printf("Spausdinam %s\n", lentele);
+    sprintf(quer0, "Describe %s", lentele);
+    sprintf(quer1, "Select count(*) from %s", lentele);
+    
+    pid_t process_id = 0;
+    process_id = fork();
+    if (process_id < 0) {
+        printf("fork failed!\n");
+        exit(1);
+    }
+    if (process_id > 0) {
+        printf("process_id of child process %d \n", process_id);
+        exit(0);
+    }
+    con = contosql();
+    mysql_query(con, quer0);
+    
+    result = mysql_store_result(con);
+    num_rows = mysql_num_rows(result);
+  
+    mysql_query(con, quer1);
+    result2 = mysql_store_result(con);
+    r = mysql_fetch_row(result2);
+    nr=atoi(r[0]);
+    
+    
+    
+    duomenys = cmem(num_rows * 150);
+    duomenys2 = cmem((num_rows+1) * 150);
+    duomenys[0]='\0';
+    duomenys2[0]='\0';
+    while (r = mysql_fetch_row(result)) {  //nuskaitom pacia pirma lentele
+        for (int i = 0; i < 6; i++) {
+            if (r[i] == NULL) strcat(duomenys, "NULL");
+            else strcat(duomenys, r[i]);
+        }
+        j++;
+        i = 0;
+    }
+    
+    
+    while (1) {  
+        mysql_query(con, quer0);
+        result = mysql_store_result(con);
+        num_rows = mysql_num_rows(result);
+       // printf("Stulpeliu skaicius %i\n", num_rows);
+        while (r = mysql_fetch_row(result)) {
+            for (int i = 0; i < 6; i++) { //nuskaitom duomenis antra karta
+                if (r[i] == NULL) strcat(duomenys2, "NULL");
+                else strcat(duomenys2, r[i]);
+               // printf("2 %s",r[i]);
+            }
+            j++;
+            i = 0;
+        }
+        
+        if (strcmp(duomenys, duomenys2) != 0) {
+            now = time(0);
+            strftime(now_time, 100, "%Y-%m-%d %H:%M:%S", localtime(&now));
+            printf("lenteles %s struktura pasikeite %s\n",lentele, now_time);
+        }
+        
+        duomenys[0]='\0';
+        strcpy(duomenys, duomenys2);
+        duomenys2[0]='\0';
+        mysql_query(con, quer1);
+        result2 = mysql_store_result(con);
+        r = mysql_fetch_row(result2);
+        nr2=atoi(r[0]);
+        if(nr2!=nr){
+            now = time(0);
+            strftime(now_time, 100, "%Y-%m-%d %H:%M:%S", localtime(&now));
+            printf("eiluciu skaicius lenteleje %s pasikeite %s\n",lentele,now_time);
+        //printf ("eiluciu skaicius %i\n",nr2);
+        }
+        nr=nr2;
+        sleep(10);
+        
+    }
+    mysql_free_result(result);
+    mysql_free_result(result2);
+    mysql_close(con);
+    exit(0);
