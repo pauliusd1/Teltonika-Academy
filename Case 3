@@ -1,0 +1,473 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <my_global.h>
+#include <mysql.h>
+#include <sys/time.h>
+const char CONFIG_FILE[] = "/home/studentas2/NetBeansProjects/Drp/monit.conf";
+FILE * failas;
+
+struct parameters {
+    int limit, reserve, rec_day, res_day;
+};
+
+//--Atminties skyrimo funkcijos---------------------------------------------------------
+
+char *cmem(int cc) { //isskiria atminti char
+    char *z;
+    z = (char *) malloc(cc * sizeof (char));
+    if (!z) {
+        printf("Crash!!!");
+        exit;
+    }
+    return z;
+}
+
+char **camem(int cc, int rows) { //isskiria atminti char
+    char** z; //eilutes masyvas
+    z = malloc(sizeof (char*) * rows); //nuoroda i pointeriu masyva (4 stulpeliai) 
+    for (int i = 0; i < rows; i++)
+        z[i] = malloc(sizeof (char) * cc); //nuoroda i
+    return z;
+}
+
+int *iamem(int rows) { //isskiria atminti char
+    int* z; //eilutes masyvas
+    z = (int *) malloc(sizeof (int) * rows); //nuoroda i pointeriu masyva (4 stulpeliai) 
+    return z;
+}
+
+void chfree(char *p) { //isvalo atminti char
+    if (p) {
+        free(p);
+        p = NULL;
+    }
+}
+
+void ifree(int *p) { //isvalo atminti char
+    if (p) {
+        free(p);
+        p = NULL;
+    }
+}
+
+//--SQL funkcijos---------------------------------------------------------------
+
+void finish_with_error(MYSQL *con) {
+    fprintf(stderr, "%s\n", mysql_error(con));
+    mysql_close(con);
+    exit(1);
+}
+
+MYSQL * contosql() {
+    MYSQL *con = mysql_init(NULL);
+    if (con == NULL) {
+        fprintf(stderr, "mysql_init() failed\n");
+        exit(1);
+    }
+    if (mysql_real_connect(con, "localhost", "root", "sqlsql",
+            "mon_rutno63", 0, NULL, 0) == NULL) {
+        finish_with_error(con);
+    }
+    return con;
+}
+
+void query(char *st, MYSQL *connect) {
+
+    if (mysql_query(connect, st)) {
+        finish_with_error(connect);
+    }
+}
+
+void sqlexec(int tcnt, int t2cnt, MYSQL *con, char *std2) {
+    if ((tcnt >= 1) || (t2cnt >= 1)) {
+        printf("Std %s", std2);
+        query(std2, con);
+        /*for(i=1;i<=stackcnt;i++){
+          strcpy(temp2[t2cnt+i-1],stack[stackcnt-i]);
+          strcpy(stack[stackcnt-i],"-");
+        }
+     t2cnt=t2cnt+stackcnt;*/
+    } else printf("\nNera duomenu apie prietaisa\n");
+}
+
+//--Parametru funkcijos---------------------------------------------------------
+
+void checkconf() {
+    failas = fopen(CONFIG_FILE, "r");
+    if (!failas) {
+        printf("nera failo");
+        exit(0);
+    }
+}
+
+void read_param(struct parameters *par) {
+    //int *lim, int *res, int *r_d, int *res_d){
+    char eilute[50];
+    char zero[1];
+    char eilute1[50], eilute2[50], eilute3[50], eilute4[50], zodis[50], zodis2[50], zodis3[50], zodis4[50];
+    int bo = 0;
+    char s[2] = "=";
+
+    while (fgets(eilute, sizeof (eilute), failas)) {
+        if (bo == 1) {
+            strncpy(eilute1, eilute, 50);
+            bo = 0;
+        }
+        if (bo == 2) {
+            strncpy(eilute2, eilute, 50);
+            bo = 0;
+        }
+        if (bo == 3) {
+            strncpy(eilute3, eilute, 50);
+            bo = 0;
+        }
+        if (bo == 4) {
+            strncpy(eilute4, eilute, 50);
+            bo = 0;
+        }
+        if (strcmp(eilute, "###Limits of records in table\n") == 0) {
+            bo = 1;
+        }
+        if (strcmp(eilute, "###Delete over limit\n") == 0) {
+            bo = 2;
+        }
+        if (strcmp(eilute, "###Records of day left\n") == 0) {
+            bo = 3;
+        }
+        if (strcmp(eilute, "###Reservation days\n") == 0) {
+            bo = 4;
+        }
+    }
+
+    strncpy(zodis, strtok(eilute1, s), 50); //nuskaitom pirmaji tokena is eilutes su simboliu s
+    strncpy(zodis, strtok(NULL, s), 50);
+    strncpy(zodis2, strtok(eilute2, s), 50); //nuskaitom pirmaji tokena is eilutes su simboliu s
+    strncpy(zodis2, strtok(NULL, s), 50);
+    strncpy(zodis3, strtok(eilute3, s), 50); //nuskaitom pirmaji tokena is eilutes su simboliu s
+    strncpy(zodis3, strtok(NULL, s), 50);
+    strncpy(zodis4, strtok(eilute4, s), 50); //nuskaitom pirmaji tokena is eilutes su simboliu s
+    strncpy(zodis4, strtok(NULL, s), 50);
+    par->limit = atoi(zodis);
+    par->reserve = atoi(zodis2);
+    par->rec_day = atoi(zodis3);
+    par->res_day = atoi(zodis4);
+    printf("LIMITSUPER %i\n", par->limit);
+    printf("RESERVE %i\n", par->reserve);
+    printf("REC_DAY %i\n", par->rec_day);
+    printf("RES_DAYS %i\n", par->res_day);
+}
+
+
+void reservday(struct tm tm, char *reservation, int res_day) {
+    tm.tm_mday = tm.tm_mday - res_day;
+    mktime(&tm);
+     sprintf(reservation, "%d-%02d-%02d", tm.tm_year + 1900 - 1, tm.tm_mon + 1 + 5, tm.tm_mday + 28);
+    printf("Reservation loc %s\n", reservation);
+}
+
+
+//--Programos funkcijos---------------------------------------------------------
+
+/*void delrecday(int *glob_count, int curr, int count, char **row_arr2, char *std, int num_rows2, int limit, int reserve, int rec_day, int last, char *std4) {
+    // printf("countfirst %s\n",row_arr2[last]);
+    // printf("countlast %s\n",row_arr2[last-count+1+rec_day]);
+    strcat(std, row_arr2[last]);
+    strcat(std, "'and'");
+    strcat(std, row_arr2[last - count + 1 + rec_day]);
+    strcat(std, "')or (");
+    strcat(std, std4);
+
+    for (int i = 0; i < count - rec_day; i++) {
+        if (*glob_count > limit - reserve) {
+
+            strcpy(row_arr2[curr + count - i], "-");
+            *glob_count = *glob_count - 1;
+        }
+    }
+
+}*/
+//void delrecday(int *glob_count, int curr, int count, char **row_arr2, char *std2, struct parameters par, int first, char *std4) {
+    void delrecday(int *glob_count, int curr, int count, char **row_arr2, char *std2, struct parameters par, int first, char *std4){
+    
+    char last[25];
+    char fir[25];
+    //int limit = par.limit;
+  // printf("Row arr fir %s\n",row_arr2[first]);
+    strcpy(fir, row_arr2[first]);
+    // printf("First %s\n",fir);
+   //  printf("c-p %i\n",par.rec_day);
+   //  printf("c %i\n",count);
+    //printf("countfirst %s \n",y);
+     //if (count<par.rec_day) par.rec_day=count-1;
+    for (int i = 0; i < count - par.rec_day; i++) {
+        if (*glob_count > par.limit - par.reserve) {
+            strcpy(last, row_arr2[curr + count - i]);
+            strcpy(row_arr2[curr + count - i], "-");
+            *glob_count = *glob_count - 1;
+        }
+    }
+    //printf("last %s\n",last);
+    if (count > par.rec_day) { //jei dienos irasu daugiau uz rec day tai iraso irasa i delete
+        strcat(std2, fir);
+        strcat(std2, "'and'");
+        strcat(std2, last);
+        strcat(std2, "')or (");
+        strcat(std2, std4);
+        
+    }
+}
+
+/*void delallday(int *glob_count, int* curr, char **row_arr2, char *std, int num_rows2, int limit, int reserve, int last, int rec_day, int count, char *std4) {
+
+    if (*glob_count > limit - reserve) {
+        if (strcmp(row_arr2[*curr], "-") != 0) {
+            strcat(std, row_arr2[*curr]);
+            strcat(std, "'and'");
+            strcat(std, row_arr2[*curr - rec_day + 1]);
+            strcat(std, "')or (");
+            strcat(std, std4);
+            //printf("countfirstz %s\n",row_arr2[*curr]);
+            // printf("countlastz %s\n",row_arr2[*curr-rec_day+1]);
+
+            *curr = *curr - rec_day;
+            // printf("Kintamieji: g_c %i, n_r %i, curr %i\n",*glob_count,num_rows2,curr);
+            /*if(*glob_count!=num_rows2) {
+                strcat(std,"','");
+            }*/
+            // else printf("\nPIRMASPIRMASPIRMASPIRMASPIRMASPIRMASPIRMASPIRMASPIRMASPIRMASPIRMASPIRMASPIRMASPIRMASPIRMASPIRMASPIRMASPIRMASPIRMASPIRMASPIRMAS!!!\n");
+            //strcat(std,row_arr2[curr]);
+
+            //strcpy(row_arr2[curr],"");
+            /**glob_count = *glob_count - 1;
+        }
+    }
+}*/
+void delallday(int *glob_count, int* curr, char **row_arr2, char *std2, struct parameters par, int last, char *std4) {
+
+    if (*glob_count > par.limit - par.reserve) { //jei glob_count daugiau uz limita  
+
+        if ((strcmp(row_arr2[*curr], "-") != 0)&&(strcmp(row_arr2[*curr - par.rec_day + 1], "-") != 0)) { //
+            strcat(std2, row_arr2[*curr]);
+            strcat(std2, "'and'");
+            strcat(std2, row_arr2[*curr - par.rec_day + 1]);
+            strcat(std2, "')or (");
+            strcat(std2, std4);
+            *curr = *curr - par.rec_day;
+            *glob_count = *glob_count - par.rec_day;
+        }
+    }
+}
+
+//------------------------------------------------------------------------------
+//MAINMAINMAINMAINMAINMAINMAINMAINMAINMAINMAINMAINMAINMAINMAINMAINMAINMAINMAINMA
+//------------------------------------------------------------------------------
+
+int main() {
+    //--Kintamieji -------------------------------------------------------------
+    struct timeval tv1, tv2, tv3;
+    gettimeofday(&tv1, NULL);
+    int i, j;
+    //int limit, reserve, rec_day, res_day; //--Kintamieji is failo plius reservation
+    time_t t = time(NULL);
+    struct tm tm = *localtime(&t);
+    char *reservation;
+    MYSQL *con; //--sql kintamieji------------------------
+    MYSQL_RES *result = NULL;
+    MYSQL_ROW r;
+    //--counter'iai---------------------------
+    int cnttillim;
+    char currdev[12]; //--Kintamieji kiti-----------------------
+    char *std = NULL;
+    char *std2 = NULL;
+    char *std3 = NULL;
+    char *std4 = NULL;
+    
+    char *std6 = NULL;
+    char **temp = NULL;
+    int len;
+    int num_rows = 0;
+    int curr, last, count = 0, glob_count;
+    int countd;
+    struct parameters p;
+
+    
+    printf("Programa su 1 Delete uzklausa, uzklausoje naudojamas Between\n");
+    //--Nuskaito parametrus---------------------------------------------------------
+    checkconf();
+    read_param(&p);
+    //printf ("perdave %i\n",p.reserve);
+    //limit=155;
+    con = contosql();
+    reservation = cmem(30);
+    reservday(tm, reservation, p.res_day);
+
+    //--Darbas su duomenimis--------------------------------------------------------   
+
+    mysql_query(con, "SELECT   device, date FROM `gsm_information`  ORDER BY device ASC, date DESC  ");
+    result = mysql_store_result(con);
+    num_rows = mysql_num_rows(result);
+
+    //--Suformuojami dinaminiai masyvai ir kt kintamieji pagal gautus duomenis------   
+    
+    temp = camem(18, num_rows * 30);
+    std = cmem(300 + 40 * num_rows);  //pagrindine eilute
+    std2 = cmem(300 + 40 * num_rows);
+    std3 = cmem(300 + 40 * num_rows);
+    std4 = cmem(40);                  
+    
+    std6 = cmem(300 + 40 * num_rows);
+
+    //--Programos darbas------------------------------------------------------------   
+
+    cnttillim = count;
+    strcpy(std3, "");
+    strcpy(std3, "Delete FROM gsm_information WHERE (");
+    
+    r = mysql_fetch_row(result);
+    strcpy(currdev, r[0]);
+   // printf("currdev %s", currdev);
+    strcpy(temp[count], r[1]);
+    // printf("sp %s %i\n",temp[count],count);
+    count++;
+    while (r = mysql_fetch_row(result)) {
+
+        if (strcmp(r[0], currdev) == 0) {
+            strcpy(temp[count], r[1]);
+            //printf("sp %s %i\n",temp[count],count);
+            count++;
+            // printf("count %i limit %i\n",count,limit);
+        } else {
+            //printf("count %i limit %i\n",count,limit);
+            ////////////////////////////////////////////////////////////////////////////////
+            ////////////////////////////////////////////////////////////////////////////////           
+            glob_count = count;
+            if (count > p.limit) { //jei irasu daugiau uz limita
+              //  printf("EINA %s\n", currdev);
+                //#1#1#1#1#1#1#1#1#1#1#1#1#1#1#1#1#1#1#1#1#1#1#1#1#1#1#1#1#1#1#1#1#1#1#1#1#1#1#1#1
+               // printf("--------------Virsytas Limitas(atliekami veiksmai) count %i----------\n", count);
+                curr = count - 2;
+                last = count - 1;
+                countd = 1;
+
+
+
+                sprintf(std4, "device='%s' and date between'", currdev);
+                strcpy(std, std4);
+
+
+                while (curr >= 0 && strncmp(reservation, temp[curr], 10) > 0) { //eina per kiekvienos lenteles irasus
+
+                    if (strncmp(temp[last], temp[curr], 10) == 0) { //jei  dienos sutampa
+                        countd++;
+                    } else {
+
+
+                        delrecday(&glob_count, curr, countd, temp, std, p, last, std4);
+                        last = curr; //  pradesim skaiciuoti naujuos dienos
+
+                        countd = 1;
+                    }
+
+                    curr--;
+                }
+                //printf("countfirst %s\n",temp[last]);
+                //  printf("countlast %s\n",temp[last-countd+1+rec_day]);
+
+                delrecday(&glob_count, curr, countd, temp, std,p, last, std4);
+
+                //#2#2#2#2#2#2#2#2#2#2#2#2#2#2#2#2#2#2#2#2#2#2#2#2#2#2#2#2#2#2#2#2#2#2#2#2#2#2#2#2#2#2
+                if (glob_count > p.limit - p.reserve) {
+                    // printf("countfirst %s\n",temp[last]);
+                    //printf("countlast %s\n",temp[last-count+1+rec_day]);
+                   // printf("--------------Virsytas antras Limitas(atliekami veiksmai)----------\n");
+                    curr = count - 2;
+                    while (curr >= 0 && strncmp(reservation, temp[curr], 10) > 0) { //eina per kiekvienos lenteles irasus
+                          delallday(&glob_count, &curr, temp, std, p, count,std4);
+                        curr--;
+                    }
+                }
+                //#3#3#3#3#3#3#3#3#3#3#3#3#3#3#3#3#3#3#3#3#3#3#3#3#3#3#3#3#3#3#3#3#3#3
+                if (glob_count > p.limit - p.reserve) {
+                  //  printf("--------------Virsytas Trecias Limitas(atliekami veiksmai)----------\n");
+                    last = curr + 1;
+                    countd = 1; //skaiciuoja kiek irasu dienoj
+                    while (curr >= 0 && strncmp(reservation, temp[curr], 10) <= 0) { //eina per kiekvienos lenteles irasus
+                        if (strncmp(temp[last], temp[curr], 10) == 0) {
+                            countd++;
+                        } else {
+                            delrecday(&glob_count, curr, countd, temp, std, p, last, std4);
+                            last = curr; //  pradesim skaiciuoti naujuos dienos
+                            countd = 1;
+                        }
+                        curr--;
+                    }
+                    delrecday(&glob_count, curr, countd, temp, std, p, last, std4);
+                }
+
+               
+
+                memset(std6, 0, strlen(std6));
+
+                len = strlen(std);
+
+                strncpy(std6, std, len - 31);
+
+                std[0] = '\0';
+                strcat(std3, std6);
+
+            }
+
+            ////////////////////////////////////////////////////////////////////////////////
+            ////////////////////////////////////////////////////////////////////////////////
+
+            //isvalomas masyvas
+            for (int i = 0; i <= count; i++) {
+                temp[i][0] = '\0';
+            }
+
+            count = 0;
+            currdev[0] = '\0';
+            //pradedamas pildyti naujas masyvas
+            strcpy(currdev, r[0]);
+            strcpy(temp[count], r[1]);
+            count++;
+
+        }
+    }
+    len = strlen(std3); //std3 yra visa eilute
+    //std yra eilute device'ui
+    strncpy(std2, std3, len - 4);
+    
+    strcat(std2, ";");
+   // printf("STD %s\n", std2);
+   // printf("LENGTH %i\n", len);
+    
+    gettimeofday(&tv2, NULL);
+    query(std2, con);
+    
+    //Free'inimas---------------------------------------------------------------
+    mysql_free_result(result);
+    mysql_close(con);
+    chfree(std);
+    chfree(std2);
+    chfree(std3);
+    chfree(std4);
+    for (int i = 0; i < num_rows; i++) {
+        chfree(temp[i]);
+    }
+    chfree(*temp);
+    
+    gettimeofday(&tv3, NULL);
+    printf("A time = %f seconds\n",
+            (double) (tv2.tv_usec - tv1.tv_usec) / 1000000 +
+            (double) (tv2.tv_sec - tv1.tv_sec));
+    printf("B time = %f seconds\n",
+            (double) (tv3.tv_usec - tv2.tv_usec) / 1000000 +
+            (double) (tv3.tv_sec - tv2.tv_sec));
+    printf("Total time = %f seconds\n",
+            (double) (tv3.tv_usec - tv1.tv_usec) / 1000000 +
+            (double) (tv3.tv_sec - tv1.tv_sec));
+
+    exit(0);
+}
